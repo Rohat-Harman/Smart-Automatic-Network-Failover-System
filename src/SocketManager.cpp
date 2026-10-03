@@ -21,6 +21,18 @@ bool performSocketTest()
 
     cout << "Winsock started successfully." << endl;
 
+    SOCKET tcpSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    if (tcpSocket == INVALID_SOCKET)
+    {
+        cout << "TCP socket could not be created." << endl;
+        WSACleanup();
+        return false;
+    }
+
+    cout << "TCP socket created successfully." << endl;
+
+    closesocket(tcpSocket);
     WSACleanup();
 
     return true;
