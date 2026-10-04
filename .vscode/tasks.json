@@ -1,0 +1,25 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build SmartNetworkFailover",
+            "type": "shell",
+            "command": "if not exist build mkdir build && call \"C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\Common7\\Tools\\VsDevCmd.bat\" -arch=x64 && cl /EHsc /I include /Fo:build\\ src\\main.cpp src\\NetworkMonitor.cpp src\\SocketManager.cpp src\\WiFiManager.cpp src\\Checksum.cpp src\\Logger.cpp /Fe:build\\SmartNetworkFailover.exe",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "cmd.exe",
+                    "args": [
+                        "/d",
+                        "/c"
+                    ]
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile"
+        }
+    ]
+}
