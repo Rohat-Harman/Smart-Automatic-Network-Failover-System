@@ -1,82 +1,222 @@
 #include "SocketManager.h"
+#include "Checksum.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iostream>
+#include <string>
 
 #pragma comment(lib, "ws2_32.lib")
 
 using namespace std;
 
-bool performSocketTest()
+namespace
 {
-    // Windows socket system information
-    WSADATA wsaData;
+    const char* TEST_IP = "1.1.1.1";
+    const int TCP_PORT = 80;
+    const int UDP_PORT = 53;
 
-    // Start Winsock
-    int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
-
-    if (result != 0)
+    bool initializeWinsock()
     {
-        cout << "Winsock could not be started." << endl;
-        return false;
+        WSADATA wsaData;
+
+        int result = WSAStartup(
+            MAKEWORD(2, 2),
+            &wsaData
+        );
+
+        return result == 0;
     }
+}
 
-    cout << "Winsock started successfully." << endl;
 
-    // Create a TCP socket
-    SOCKET tcpSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+bool performTCPTest()
+{
+    if (!initializeWinsock())
+        return false;
+
+    SOCKET tcpSocket = socket(
+        AF_INET,
+        SOCK_STREAM,
+        IPPROTO_TCP
+    );
 
     if (tcpSocket == INVALID_SOCKET)
     {
-        cout << "TCP socket could not be created." << endl;
         WSACleanup();
         return false;
     }
 
-    cout << "TCP socket created successfully." << endl;
-
-    // Define the server address
     sockaddr_in serverAddress{};
-
     serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(80);
+    serverAddress.sin_port = htons(TCP_PORT);
 
-    // Convert the IP address into binary form
-    if (inet_pton(AF_INET, "1.1.1.1", &serverAddress.sin_addr) != 1)
+    if (inet_pton(
+            AF_INET,
+            TEST_IP,
+            &serverAddress.sin_addr
+        ) != 1)
     {
-        cout << "Invalid server IP address." << endl;
-
         closesocket(tcpSocket);
         WSACleanup();
-
         return false;
     }
 
-    // Try to establish a TCP connection
-    int connectResult = connect(
+    // Set socket to non-blocking mode.
+    u_long nonBlocking = 1;
+
+    if (ioctlsocket(
+            tcpSocket,
+            FIONBIO,
+            &nonBlocking
+        ) == SOCKET_ERROR)
+    {
+        closesocket(tcpSocket);
+        WSACleanup();
+        return false;
+    }
+
+    int result = connect(
         tcpSocket,
         reinterpret_cast<sockaddr*>(&serverAddress),
         sizeof(serverAddress)
     );
 
-    if (connectResult == SOCKET_ERROR)
+    bool success = false;
+
+    if (result == 0)
     {
-        cout << "TCP connection failed." << endl;
+        success = true;
+    }
+    else if (WSAGetLastError() == WSAEWOULDBLOCK)
+    {
+        fd_set writeSet;
+        fd_set errorSet;
 
-        closesocket(tcpSocket);
+        FD_ZERO(&writeSet);
+        FD_ZERO(&errorSet);
+
+        FD_SET(tcpSocket, &writeSet);
+        FD_SET(tcpSocket, &errorSet);
+
+        timeval timeout{};
+        timeout.tv_sec = 2;
+        timeout.tv_usec = 0;
+
+        int ready = select(
+            0,
+            nullptr,
+            &writeSet,
+            &errorSet,
+            &timeout
+        );
+
+        if (ready > 0 && FD_ISSET(tcpSocket, &writeSet))
+        {
+            int socketError = 0;
+            int errorLength = sizeof(socketError);
+
+            if (getsockopt(
+                    tcpSocket,
+                    SOL_SOCKET,
+                    SO_ERROR,
+                    reinterpret_cast<char*>(&socketError),
+                    &errorLength
+                ) == 0)
+            {
+                success = (socketError == 0);
+            }
+        }
+    }
+
+    closesocket(tcpSocket);
+    WSACleanup();
+
+    return success;
+}
+
+
+bool performUDPTest()
+{
+    if (!initializeWinsock())
+        return false;
+
+    SOCKET udpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+    if (udpSocket == INVALID_SOCKET)
+    {
         WSACleanup();
-
         return false;
     }
 
-    cout << "TCP connection successful." << endl;
+    DWORD timeout = 2000;
+    setsockopt(
+        udpSocket,
+        SOL_SOCKET,
+        SO_RCVTIMEO,
+        reinterpret_cast<const char*>(&timeout),
+        sizeof(timeout)
+    );
 
-    // Close the socket
-    closesocket(tcpSocket);
+    sockaddr_in serverAddress{};
+    serverAddress.sin_family = AF_INET;
+    serverAddress.sin_port = htons(53);
 
-    // Shut down Winsock
+    inet_pton(AF_INET, "1.1.1.1", &serverAddress.sin_addr);
+
+    // DNS query: example.com A record
+    unsigned char query[] = {
+        0x12, 0x34, 0x01, 0x00,
+        0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x07, 'e','x','a','m','p','l','e',
+        0x03, 'c','o','m',
+        0x00, 0x00, 0x01, 0x00, 0x01
+    };
+
+    int sent = sendto(
+        udpSocket,
+        reinterpret_cast<const char*>(query),
+        sizeof(query),
+        0,
+        reinterpret_cast<sockaddr*>(&serverAddress),
+        sizeof(serverAddress)
+    );
+
+    char response[512];
+
+    int received = SOCKET_ERROR;
+
+    if (sent == sizeof(query))
+    {
+        received = recvfrom(
+            udpSocket,
+            response,
+            sizeof(response),
+            0,
+            nullptr,
+            nullptr
+        );
+    }
+
+    bool success =
+        received >= 12 &&
+        static_cast<unsigned char>(response[0]) == 0x12 &&
+        static_cast<unsigned char>(response[1]) == 0x34 &&
+        (static_cast<unsigned char>(response[2]) & 0x80) != 0 &&
+        (static_cast<unsigned char>(response[3]) & 0x0F) == 0;
+
+    closesocket(udpSocket);
     WSACleanup();
 
-    return true;
+    return success;
+}
+
+
+bool performSocketTest()
+{
+    bool tcpResult = performTCPTest();
+    bool udpResult = performUDPTest();
+
+    return tcpResult && udpResult;
 }

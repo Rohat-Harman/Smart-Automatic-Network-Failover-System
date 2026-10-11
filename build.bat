@@ -9,7 +9,7 @@ if errorlevel 1 exit /b 1
 
 if not exist "build" mkdir "build"
 
-cl /nologo /EHsc /std:c++17 /I include /Fo:build\ src\main.cpp src\NetworkMonitor.cpp src\SocketManager.cpp src\WiFiManager.cpp src\Checksum.cpp src\Logger.cpp /Fe:build\SmartNetworkFailover.exe
+cl /nologo /EHsc /std:c++17 /utf-8 /I include /Fo:build\ src\main.cpp src\NetworkMonitor.cpp src\SocketManager.cpp src\WiFiManager.cpp src\Checksum.cpp src\Logger.cpp /Fe:build\SmartNetworkFailover.exe
 
 if errorlevel 1 (
     echo BUILD FAILED
